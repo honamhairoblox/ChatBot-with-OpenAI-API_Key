@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="description" content="ChatGPT API Demo" />
+    <meta name="viewport" content="width=device-width, height=device-height" />
+    <title>Hải Gi-Pi-Ti Chat</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body,
+      #app {
+        height: 100%;
+      }
+      body {
+        margin: 0;
+        font-family: -apple-system, "system-ui", "Segoe UI Adjusted", "Segoe UI",
+          "Liberation Sans", sans-serif;
+      }
+      pre {
+        overflow-x: auto;
+        border-radius: 6px;
+      }
+      button {
+        border: none;
+        background-color: transparent;
+        color: inherit;
+        padding: 0;
+        cursor: pointer;
+      }
+      ul {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+      }
+      #app {
+        display: flex;
+        flex-direction: column;
+      }
+      header {
+        position: relative;
+        width: 100%;
+        height: 48px;
+        flex-shrink: 0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background-color: #333;
+        color: white;
+      }
+      header > button {
+        position: absolute;
+        padding: 12px;
+      }
+      button.menu {
+        left: 0;
+      }
+      button.clear {
+        right: 0;
+      }
+      .hidden {
+        display: none;
+      }
+      aside {
+        position: fixed;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 1;
+        display: flex;
+      }
+      .sidebar-container {
+        background-color: #333;
+        color: white;
+        width: 300px;
+        overflow-y: auto;
+      }
+      .sidebar-modal {
+        flex: 1 0;
+        min-width: 64px;
+        background-color: rgba(0, 0, 0, 0.3);
+      }
+      li > button {
+        width: 100%;
+        height: 48px;
+        text-align: left;
+        padding: 0 16px;
+        transition: background-color 0.2s;
+      }
+      li > button:hover {
+        background-color: rgba(255, 255, 255, 0.1);
+      }
+      main {
+        flex-grow: 1;
+        overflow-y: auto;
+      }
+      .chat-container {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        max-width: 768px;
+        margin: 0 auto;
+        overflow-wrap: break-word;
+      }
+      .chat-container .message {
+        padding: 2px 16px;
+      }
+      .chat-container .assistant {
+        background-color: #f0f0f0;
+      }
+      footer {
+        width: 100%;
+        padding: 8px;
+        display: flex;
+        justify-content: center;
+        border-top: 1px solid rgba(0, 0, 0, 0.1);
+      }
+      #input-box {
+        width: 100%;
+        max-width: 768px;
+        padding: 8px;
+        border-width: 1px;
+        border-color: rgba(0, 0, 0, 0.1);
+        border-radius: 6px;
+        box-shadow: 0 0 5px rgba(0, 0, 0, 0.1);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script
+      src="https://unpkg.com/react@18/umd/react.production.min.js"
+      crossorigin
+    ></script>
+    <script
+      src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"
+      crossorigin
+    ></script>
+    <script src="https://cdn.jsdelivr.net/npm/markdown-it@13.0.1/dist/markdown-it.min.js"></script>
+    <link
+      href="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/styles/github.min.css"
+      rel="stylesheet"
+    />
+    <script
+      src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"
+      integrity="sha512-bgHRAiTjGrzHzLyKOnpFvaEpGzJet3z4tZnXGjpsCcqOnAH6VGUx9frc5bcIhKTVLEiCO6vEhNAgx5jtLUYrfA=="
+      crossorigin="anonymous"
+      referrerpolicy="no-referrer"
+    ></script>
+    <script type="module">
+      function getToken() {
+        // Try localStorage first
+        let token = localStorage.getItem("openai-token");
+        if (token) return token;
+
+        token = prompt("Please enter your OpenAI API key");
+        if (token) {
+          localStorage.setItem("openai-token", token);
+          return token;
+        }
+      }
+
+      async function getApiUrl() {
+        if (getApiUrl.url) return getApiUrl.url;
+        try {
+          const response = await fetch("/api/completions", {
+            method: "OPTIONS",
+          });
+          if (response.status !== 200) throw new Error();
+          getApiUrl.url = "/api/completions";
+          const corsHeaders = (
+            response.headers.get("Access-Control-Allow-Headers") || ""
+          ).toLowerCase();
+          getApiUrl.tokenRequired = corsHeaders.includes("authorization");
+        } catch (e) {
+          getApiUrl.url = "https://api.openai.com/v1/chat/completions";
+          getApiUrl.tokenRequired = true;
+        }
+        return getApiUrl.url;
+      }
+
+      async function complete(messages, token, progressCallback) {
+        const headers = { "Content-Type": "application/json" };
+        if (getApiUrl.tokenRequired) headers.Authorization = `Bearer ${token}`;
+        const response = await fetch(await getApiUrl(), {
+          method: "POST",
+          headers: headers,
+          body: JSON.stringify({
+            model: "gpt-3.5-turbo",
+            messages: messages,
+            stream: true,
+          }),
+        });
+
+        if (response.status !== 200) {
+          throw new Error(await response.text());
+        }
+
+        const reader = response.body.getReader();
+        let responseObj = {};
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const lines = new TextDecoder("utf-8").decode(value).split("\n");
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              if (line.includes("[DONE]")) return responseObj;
+              try {
+                const data = JSON.parse(line.slice(6));
+                const delta = data.choices[0].delta;
+                for (const key in delta) {
+                  if (!(key in responseObj)) responseObj[key] = delta[key];
+                  else responseObj[key] += delta[key];
+                  progressCallback(responseObj);
+                }
+              } catch (e) {
+                console.log("Error parsing line:", line);
+              }
+            }
+          }
+        }
+        return responseObj;
+      }
+
+      var md = window.markdownit();
+
+      function ChatContainer({ messages }) {
+        const ref = React.useRef(null);
+        React.useEffect(() => {
+          // Highlight code blocks but skip ones that are already highlighted
+          ref.current
+            .querySelectorAll("pre code:not(.hljs)")
+            .forEach((node) => {
+              hljs.highlightElement(node);
+            });
+
+          // Highlight code blocks in the last message
+          const last = ref.current.lastElementChild;
+          for (const node of last ? last.querySelectorAll("pre code") : []) {
+            node.textContent = node.innerText;
+            hljs.highlightElement(node);
+          }
+
+          // Scroll to bottom
+          const main = ref.current.parentElement;
+          main.scrollTop = main.scrollHeight;
+        });
+
+        return React.createElement(
+          "div",
+          { ref, className: "chat-container" },
+          messages.map((message, index) => {
+            return React.createElement("div", {
+              className: [message.role, "message"].join(" "),
+              key: index,
+              dangerouslySetInnerHTML: {
+                __html: md.render(message.content || ""),
+              },
+            });
+          })
+        );
+      }
+
+      export function Sidebar({
+        messages,
+        onMessagesChange,
+        onModalClick,
+        onClearClick,
+        onSettingsClick,
+      }) {
+        const initConversations = JSON.parse(
+          localStorage.getItem("conversations") || "[]"
+        );
+        const [conversations, setConversations] =
+          React.useState(initConversations);
+        const [currentConversation, setCurrentConversation] = React.useState(
+          conversations[0]
+        );
+        const currentConversationRef = React.useRef(currentConversation);
+
+        React.useEffect(() => {
+          if (!conversations.length) localStorage.removeItem("conversations");
+          else
+            localStorage.setItem(
+              "conversations",
+              JSON.stringify(conversations)
+            );
+        }, [conversations]);
+
+        React.useEffect(() => {
+          currentConversationRef.current = currentConversation;
+          onMessagesChange(currentConversation?.messages || []);
+        }, [currentConversation, onMessagesChange]);
+
+        React.useEffect(() => {
+          if (!messages.length && !currentConversationRef.current) return;
+
+          if (!currentConversationRef.current) {
+            const newCoversation = {
+              id: crypto.getRandomValues(new Uint32Array(1))[0],
+              title: messages[0].content.split("\n")[0].slice(0, 20),
+              messages,
+            };
+            setConversations([newCoversation, ...conversations]);
+            setCurrentConversation(newCoversation);
+          } else if (currentConversationRef.current.messages !== messages) {
+            currentConversationRef.current.messages = messages;
+            localStorage.setItem(
+              "conversations",
+              JSON.stringify(conversations)
+            );
+          }
+        }, [messages]);
+
+        return [
+          React.createElement(
+            "div",
+            { key: "sidebar-container", className: "sidebar-container" },
+            [
+              React.createElement("ul", { key: "list" }, [
+                React.createElement("li", { key: "new" }, [
+                  React.createElement(
+                    "button",
+                    {
+                      key: "new",
+                      onClick: () => setCurrentConversation(null),
+                    },
+                    "New Chat"
+                  ),
+                ]),
+                conversations.map((conversation, index) => {
+                  return React.createElement("li", { key: index }, [
+                    React.createElement(
+                      "button",
+                      {
+                        key: conversation.id,
+                        onClick: () => {
+                          setCurrentConversation(conversation);
+                        },
+                        onContextMenu: (ev) => {
+                          ev.preventDefault();
+                          setConversations(
+                            conversations.filter((c) => c !== conversation)
+                          );
+                          if (currentConversation === conversation)
+                            setCurrentConversation(null);
+                        },
+                      },
+                      conversation.title
+                    ),
+                  ]);
+                }),
+                React.createElement("li", { key: "clear" }, [
+                  React.createElement(
+                    "button",
+                    {
+                      key: "clear",
+                      onClick: () => {
+                        setConversations([]);
+                        setCurrentConversation(null);
+                        onMessagesChange([]);
+                        onModalClick();
+                      },
+                    },
+                    "Clear Conversations"
+                  ),
+                ]),
+                React.createElement("li", { key: "settings" }, [
+                  React.createElement(
+                    "button",
+                    {
+                      key: "settings",
+                      onClick: onSettingsClick,
+                    },
+                    "Settings"
+                  ),
+                ]),
+              ]),
+            ]
+          ),
+          React.createElement("div", {
+            key: "sidebar-modal",
+            className: "sidebar-modal",
+            onClick: onModalClick,
+          }),
+        ];
+      }
+
+      export function App() {
+        let token = null;
+        getApiUrl().then(() => {
+          if (getApiUrl.tokenRequired) token = getToken();
+        });
+
+        const [messages, setMessages] = React.useState([]);
+        const [editingMessage, setEditingMessage] = React.useState(null);
+
+        const [showSidebar, setShowSidebar] = React.useState(false);
+
+        return [
+          React.createElement("header", { key: "header" }, [
+            React.createElement("span", { key: "title" }, "OpenAI Chat"),
+            React.createElement(
+              "button",
+              {
+                key: "menu",
+                onClick: () => {
+                  setShowSidebar(!showSidebar);
+                },
+                className: "menu",
+              },
+              React.createElement("img", {
+                src: "/assets/img/menu.svg",
+                width: "24",
+                height: "24",
+                alt: "Menu",
+              })
+            ),
+            React.createElement(
+              "button",
+              {
+                key: "clear",
+                onClick: () => {
+                  setMessages([]);
+                },
+                className: "clear",
+              },
+              React.createElement("img", {
+                src: "/assets/img/cleaning_services.svg",
+                width: "24",
+                height: "24",
+                alt: "Clear",
+              })
+            ),
+          ]),
+
+          React.createElement(
+            "aside",
+            {
+              key: "sidebar",
+              className: showSidebar ? "sidebar" : "sidebar hidden",
+            },
+
+            React.createElement(Sidebar, {
+              key: "sidebar",
+              messages,
+              onMessagesChange: setMessages,
+
+              onModalClick: () => {
+                setShowSidebar(false);
+              },
+            })
+          ),
+
+          React.createElement(
+            "main",
+            { key: "main" },
+            React.createElement(ChatContainer, {
+              messages: [...messages, editingMessage].filter((m) => m),
+              key: "chat-container",
+            })
+          ),
+
+          React.createElement(
+            "footer",
+            { key: "footer" },
+            React.createElement("input", {
+              id: "input-box",
+              type: "text",
+              "aria-label": "Chat with AI",
+              onKeyUp: async (ev) => {
+                if (ev.key === "Enter") {
+                  if (
+                    ev.target.value.length === 0 ||
+                    ev.target.value.length >= 4096
+                  )
+                    return;
+                  const message = ev.target.value;
+                  ev.target.value = "";
+                  ev.target.blur();
+                  const userMessages = [
+                    ...messages,
+                    { role: "user", content: message },
+                  ];
+                  setMessages(userMessages);
+                  try {
+                    const completion = await complete(
+                      userMessages,
+                      token,
+                      (message) => setEditingMessage({ ...message })
+                    );
+                    setMessages((messages) => [...messages, completion]);
+                  } catch (error) {
+                    console.log(error.message);
+                    return;
+                  } finally {
+                    setEditingMessage(null);
+                  }
+                }
+              },
+            })
+          ),
+        ];
+      }
+
+      const rootNode = document.getElementById("app");
+      const root = ReactDOM.createRoot(rootNode);
+      root.render(React.createElement(App));
+    </script>
+  </body>
+</html>
