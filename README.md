@@ -16,7 +16,7 @@ This repository contains the implementation of a ChatBot integrated with the Ope
 
 1. **Clone the Repository:**
     ```bash
-    git clone https://github.com/yourusername/ChatBot-OpenAI.git
+    git clone https://github.com/honamhairoblox/ChatBot-with-OpenAI-API_Key.git
     cd ChatBot-OpenAI
     ```
 
