@@ -51,11 +51,3 @@ chatbot:
 ## Contributing
 
 We welcome contributions! If you find any issues or have suggestions for improvements, feel free to open an issue or submit a pull request.
-
-## License
-
-This ChatBot project is licensed under the [MIT License](LICENSE.md).
-
----
-
-Feel free to modify the README according to the specific details and functionalities of your ChatBot implementation.
